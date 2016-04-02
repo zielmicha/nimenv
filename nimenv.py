@@ -144,7 +144,7 @@ def main():
         deps_script.append('get_dep %s %s %s %s' % (pipes.quote(name), pipes.quote(url), pipes.quote(rev), pipes.quote(suffix[name])))
 
     nim_script = [
-        'echo "building {0}"; bin/nim c --out:"$PWD/bin/{0}" {1}'.format(pipes.quote(k), pipes.quote(v))
+        'echo "building {0}"; bin/nim c -d:release --out:"$PWD/bin/{0}" {1}'.format(pipes.quote(k), pipes.quote(v))
         for k, v in sorted(builds.items())
     ]
 
