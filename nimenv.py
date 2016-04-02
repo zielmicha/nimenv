@@ -43,6 +43,7 @@ get_dep() {
   name="$1"
   url="$2"
   hash="$3"
+  srcpath="$4"
   new=0
   if ! [ -e "$name" ]; then
     git clone --recursive "$url" "$name"
@@ -56,7 +57,7 @@ get_dep() {
      cd ..
   fi
   cd ../..
-  echo "path: \".nimenv/deps/$name\"" >> nim.cfg
+  echo "path: \".nimenv/deps/$name$srcpath\"" >> nim.cfg
 }
 
 echo "path: \".\"" > nim.cfg
@@ -111,12 +112,23 @@ def main():
     local = split_sections(open('nimenv.local').read())
     cfg = split_sections(open('nimenv.cfg').read())
     repos = parse_kv(local['repos'])
-    deps = parse_kv(cfg['deps'])
+    deps_raw = parse_kv(cfg['deps'])
     builds = parse_kv(cfg['build'])
+
+    deps = {}
+    suffix = {}
+    for k, v in deps_raw.items():
+        if k == 'nim': continue
+        s = v.split(None, 1)
+        if len(s) > 1:
+            suffix[k] = '/' + s[1]
+        else:
+            suffix[k] = ''
+        deps[k] = s[0]
 
     nim_cfg = ['path: "."']
     for k, v in sorted(repos.items()):
-        nim_cfg.append('path: "%s"' % v)
+        nim_cfg.append('path: "%s"' % (v + suffix[k]))
     nim_cfg.append('')
     nim_cfg.append(cfg['nim'] + '\n')
 
@@ -124,16 +136,15 @@ def main():
         f.write('\n'.join(nim_cfg))
 
     build_script = []
-    nim_url, nim_hash = deps['nim'].split(None, 1)
-    del deps['nim']
+    nim_url, nim_hash = deps_raw['nim'].split(None, 1)
 
     deps_script = []
     for name, url in sorted(deps.items()):
         rev = get_rev(repos[name])
-        deps_script.append('get_dep %s %s %s' % (pipes.quote(name), pipes.quote(url), pipes.quote(rev)))
+        deps_script.append('get_dep %s %s %s %s' % (pipes.quote(name), pipes.quote(url), pipes.quote(rev), pipes.quote(suffix[name])))
 
     nim_script = [
-        'echo "building {0}"; nim c --out:"$PWD/bin/{0}" {1}'.format(pipes.quote(k), pipes.quote(v))
+        'echo "building {0}"; bin/nim c --out:"$PWD/bin/{0}" {1}'.format(pipes.quote(k), pipes.quote(v))
         for k, v in sorted(builds.items())
     ]
 
