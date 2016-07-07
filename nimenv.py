@@ -4,6 +4,7 @@ import subprocess
 import os
 import sys
 import pipes
+import argparse
 
 BUILD = r'''#!/bin/sh
 set -e
@@ -108,7 +109,9 @@ def get_rev(cwd):
 class MyTemplate(string.Template):
     delimiter = '@@'
 
-def main():
+def make_dist():
+    if not os.path.exists('nimenv.local'):
+        sys.exit('nimenv.local doesn\'t exist - use `nimenv localsetup`')
     local = split_sections(open('nimenv.local').read())
     cfg = split_sections(open('nimenv.cfg').read())
     repos = parse_kv(local['repos'])
@@ -154,6 +157,51 @@ def main():
     with os.fdopen(os.open('build.sh', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o777), 'w') as f:
         f.write(build_script)
 
+def local_setup(base_dir):
+    if os.path.exists('nimenv.local'):
+        local = split_sections(open('nimenv.local').read())
+        repos = parse_kv(local.get('repos', ''))
+    else:
+        repos = {}
+
+    cfg = split_sections(open('nimenv.cfg').read())
+    deps_raw = parse_kv(cfg['deps'])
+
+    for k, v in sorted(deps_raw.items()):
+        if k == 'nim':
+            continue
+        url = v.split()[0]
+        if k not in repos:
+            path = os.path.join(base_dir, k)
+            if not os.path.exists(path):
+                subprocess.check_call(['git', 'clone', '--recursive', url, path])
+            repos[k] = path
+
+    with open('nimenv.local', 'w') as f:
+        f.write('[repos]\n')
+        for k, v in sorted(repos.items()):
+            f.write('%s: %s\n' % (k, v))
+
+    print('nimenv.local created!')
+
+def main():
+    if len(sys.argv) == 1:
+        sys.argv.append('dist')
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest='command')
+    subparser = subparsers.add_parser('dist', help='creates build.sh')
+    subparser = subparsers.add_parser('localsetup', help='clones dependencies and creates nimenv.local')
+    subparser.add_argument('basedir')
+
+    ns = parser.parse_args()
+
+    if ns.command == 'dist':
+        make_dist()
+    elif ns.command == 'localsetup':
+        local_setup(ns.basedir)
+    else:
+        parser.print_usage()
 
 if __name__ == '__main__':
     main()
