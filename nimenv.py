@@ -5,6 +5,7 @@ import os
 import sys
 import pipes
 import argparse
+import json
 
 BUILD = r'''#!/bin/sh
 set -e
@@ -154,8 +155,49 @@ def make_dist():
     env = {'nimurl': nim_url, 'nimhash': nim_hash, 'nimcfg': pipes.quote(cfg['nim']), 'deps': '\n'.join(deps_script), 'build': '\n'.join(nim_script)}
     build_script = MyTemplate(BUILD).substitute(env)
 
-    with os.fdopen(os.open('build.sh', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o777), 'w') as f:
-        f.write(build_script)
+    if not os.path.exists('deps.nix'):
+        with os.fdopen(os.open('build.sh', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o777), 'w') as f:
+            f.write(build_script)
+
+    if os.path.exists('deps.nix'):
+        try:
+            prev = json.load(open('.deps.json'))
+        except Exception:
+            prev = {}
+        new = {}
+        nix = ['{fetchgit, ...}:', '{']
+
+        for name, url in deps.items():
+            rev = get_rev(repos[name])
+            #pkg_url = '%s/archive/%s.tar.gz' % (url, rev)
+
+            if prev.get(name) and prev[name]['rev'] == rev:
+                sha256 = prev[name]['sha256']
+            else:
+                r = subprocess.check_output(['nix-prefetch-git', '--fetch-submodules', url, rev]).strip().decode('utf8')
+                sha256 = json.loads(r)['sha256']
+
+            new[name] = {
+                'rev': rev,
+                'sha256': sha256
+            }
+
+            nix += [
+                '  %s = fetchgit {' % name,
+                '    name = "%s";' % name,
+                '    url = "%s";' % url,
+                '    rev = "%s";' % rev,
+                '    fetchSubmodules = true;',
+                '    sha256 = "%s";' % sha256,
+                '  };',
+            ]
+
+        nix += ['}', '']
+        with open('.deps.json', 'w') as f:
+            f.write(json.dumps(new, indent=4, sort_keys=True) + '\n')
+
+        with open('deps.nix', 'w') as f:
+            f.write('\n'.join(nix))
 
 def local_setup(base_dir):
     if os.path.exists('nimenv.local'):
